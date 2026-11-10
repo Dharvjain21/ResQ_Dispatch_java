@@ -15,10 +15,11 @@
 5. [Prerequisites & Environment](#prerequisites--environment)
 6. [Quick Start (Stage 1 Console Demonstration)](#quick-start-stage-1-console-demonstration)
 7. [Running the Spring Boot Web Application](#running-the-spring-boot-web-application)
-8. [Database Setup (H2 vs MySQL)](#database-setup-h2-vs-mysql)
-9. [REST API Documentation & Postman Examples](#rest-api-documentation--postman-examples)
-10. [Testing & Verification Checklist](#testing--verification-checklist)
-11. [Academic Defense & Viva Prep](#academic-defense--viva-prep)
+8. [Deploying on Render](#deploying-on-render)
+9. [Database Setup (H2 vs MySQL)](#database-setup-h2-vs-mysql)
+10. [REST API Documentation & Postman Examples](#rest-api-documentation--postman-examples)
+11. [Testing & Verification Checklist](#testing--verification-checklist)
+12. [Academic Defense & Viva Prep](#academic-defense--viva-prep)
 
 ---
 
@@ -240,7 +241,20 @@ To inspect database tables and execute SQL queries directly in your browser:
 
 ---
 
-## 8. Database Setup (H2 vs MySQL)
+## 8. Deploying on Render
+
+The repository includes [`render.yaml`](render.yaml), which configures a Render web service for the Spring Boot backend.
+
+1. Push the repository to GitHub.
+2. In Render, select **New +** → **Blueprint**.
+3. Connect `Dharvjain21/ResQ_Dispatch_java`.
+4. Select the `main` branch and approve the Blueprint.
+5. Render builds from `backend` with Maven and starts the packaged JAR.
+6. Open the generated `https://<service-name>.onrender.com/` URL.
+
+The application reads Render's `PORT` environment variable and falls back to `8080` locally. The default Render deployment uses the embedded H2 database, so seeded data is recreated after a service restart or redeploy. Use the MySQL profile with an external managed MySQL database if persistent production data is required.
+
+## 9. Database Setup (H2 vs MySQL)
 
 ### Using Default H2 (Zero Installation)
 No configuration required! The default `application.properties` uses embedded H2. All tables and seed records are automatically provisioned by `DataInitializer.java` on startup.
