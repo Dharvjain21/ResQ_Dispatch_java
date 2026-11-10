@@ -20,7 +20,8 @@ const state = {
     activeDispatch: null,
     activeTab: 'map-view',
     simulationInterval: null,
-    currentStepIndex: 0
+    currentStepIndex: 0,
+    routeProgress: 0
 };
 
 // Map & Layer References
@@ -107,14 +108,13 @@ function initLeafletMap() {
     map = L.map('map', {
         center: centerPoint,
         zoom: 14,
-        zoomControl: true,
-        attributionControl: false
+        zoomControl: true
     });
 
-    // Dark-mode styled OpenStreetMap CartoDB tiles
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    // OpenStreetMap tiles require attribution and do not need an API key.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
-        subdomains: 'abcd'
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>'
     }).addTo(map);
 
     // Create Layer Groups
@@ -662,6 +662,7 @@ function startRouteSimulation() {
 
     showToast(`Simulation started: Ambulance ${dispatch.ambulanceId} is navigating the route...`, 'success');
     state.currentStepIndex = 0;
+    state.routeProgress = 0;
 
     const latLngPoints = pathNodes.map(id => {
         const node = state.roadNodes[id];
@@ -672,31 +673,43 @@ function startRouteSimulation() {
     const emergencyIndex = (dispatch.routeToEmergency || []).length - 1;
 
     state.simulationInterval = setInterval(async () => {
-        state.currentStepIndex++;
+        state.routeProgress += 0.08;
+        const segmentIndex = Math.floor(state.routeProgress);
+        const segmentProgress = state.routeProgress - segmentIndex;
 
-        if (state.currentStepIndex < latLngPoints.length) {
-            const nextCoord = latLngPoints[state.currentStepIndex];
+        if (state.routeProgress < latLngPoints.length - 1) {
+            const start = latLngPoints[segmentIndex];
+            const end = latLngPoints[segmentIndex + 1];
+            const nextCoord = [
+                start[0] + (end[0] - start[0]) * segmentProgress,
+                start[1] + (end[1] - start[1]) * segmentProgress
+            ];
             if (simulatedAmbulanceMarker) {
                 simulatedAmbulanceMarker.setLatLng(nextCoord);
             }
 
-            // Check milestone status transitions
-            if (state.currentStepIndex === 1) {
-                await updateDispatchStatus(dispatch.id, 'EN_ROUTE_TO_EMERGENCY', 'Ambulance en route to emergency');
-            } else if (state.currentStepIndex === emergencyIndex) {
-                await updateDispatchStatus(dispatch.id, 'ON_SCENE', 'Ambulance arrived on scene');
-                showToast(`🚨 Ambulance ${dispatch.ambulanceId} arrived ON SCENE at ${pathNodes[emergencyIndex]}!`, 'success');
-            } else if (state.currentStepIndex === emergencyIndex + 1) {
-                await updateDispatchStatus(dispatch.id, 'EN_ROUTE_TO_HOSPITAL', 'Transporting patient to hospital');
+            if (segmentIndex > state.currentStepIndex) {
+                state.currentStepIndex = segmentIndex;
+                if (segmentIndex === 1) {
+                    await updateDispatchStatus(dispatch.id, 'EN_ROUTE_TO_EMERGENCY', 'Ambulance en route to emergency');
+                } else if (segmentIndex === emergencyIndex) {
+                    await updateDispatchStatus(dispatch.id, 'ON_SCENE', 'Ambulance arrived on scene');
+                    showToast(`🚨 Ambulance ${dispatch.ambulanceId} arrived ON SCENE at ${pathNodes[emergencyIndex]}!`, 'success');
+                } else if (segmentIndex === emergencyIndex + 1) {
+                    await updateDispatchStatus(dispatch.id, 'EN_ROUTE_TO_HOSPITAL', 'Transporting patient to hospital');
+                }
             }
         } else {
             // Reached Destination Hospital
+            if (simulatedAmbulanceMarker) {
+                simulatedAmbulanceMarker.setLatLng(latLngPoints[latLngPoints.length - 1]);
+            }
             clearInterval(state.simulationInterval);
             state.simulationInterval = null;
             await completeActiveDispatch();
             showToast(`🏁 Mission Complete! Patient safely delivered to ${dispatch.hospitalName}.`, 'success');
         }
-    }, 1800); // Step every 1.8 seconds
+    }, 100); // Smoothly animate between route waypoints
 }
 
 async function stepNextStatus() {
