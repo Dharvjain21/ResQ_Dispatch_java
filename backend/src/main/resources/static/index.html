@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResQ Dispatch — Emergency Response Control Center</title>
+    <!-- Leaflet.js Map CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <!-- Custom Command Center Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- ====================================================================
+         TOP NAVIGATION & TELEMETRY KPI BAR
+         ==================================================================== -->
+    <header class="top-nav">
+        <div class="brand-section">
+            <span class="brand-badge">ResQ Ops</span>
+            <div class="brand-title">
+                Emergency Command Center
+                <span class="brand-subtitle">Smart Ambulance Dispatch &amp; Hospital Routing</span>
+            </div>
+        </div>
+
+        <div class="telemetry-bar">
+            <div class="kpi-chip">
+                <span class="kpi-label">Active Calls</span>
+                <span class="kpi-value" id="kpi-active-calls">0</span>
+            </div>
+            <div class="kpi-chip critical">
+                <span class="kpi-label">Critical</span>
+                <span class="kpi-value" id="kpi-critical">0</span>
+            </div>
+            <div class="kpi-chip">
+                <span class="kpi-label">Operator Load</span>
+                <span class="kpi-value" id="kpi-operator-load">0%</span>
+            </div>
+            <div class="kpi-chip success">
+                <span class="kpi-label">Available Fleet</span>
+                <span class="kpi-value" id="kpi-available-fleet">-- / --</span>
+            </div>
+        </div>
+
+        <div class="header-actions">
+            <div class="mode-pills">
+                <button class="mode-pill active">All Modes</button>
+                <button class="mode-pill" onclick="switchTab('map-view')">Normal</button>
+                <button class="mode-pill" onclick="triggerDemoCardiacEmergency()">Simulation</button>
+            </div>
+            <button class="btn-secondary" onclick="fetchAllData()" title="Synchronize telemetry with backend">
+                🔄 Refresh
+            </button>
+            <div style="display: flex; align-items: center; gap: 6px; padding: 0 4px;">
+                <div class="pulse-indicator" title="Connected to Dispatch Engine"></div>
+                <span style="font-size: 11px; font-weight: 600; color: #10b981;">Realtime</span>
+            </div>
+            <button class="btn-primary" onclick="openCreateEmergencyModal()">
+                <span>🚨</span> Report Emergency
+            </button>
+        </div>
+    </header>
+
+    <!-- ====================================================================
+         SUB-COMMAND BAR & DEMO SCENARIO CONTROLS
+         ==================================================================== -->
+    <div class="sub-bar">
+        <div class="demo-controls">
+            <span class="demo-title">Simulation Controls:</span>
+            <button class="btn-action-sm" onclick="triggerDemoCardiacEmergency()">
+                ❤️ Cardiac Emergency
+            </button>
+            <button class="btn-action-sm" onclick="triggerDemoRoadAccident()">
+                🚗 Road Crash
+            </button>
+            <button class="btn-action-sm" onclick="runBatchAutoDispatch()">
+                ⚡ Auto-Dispatch All
+            </button>
+            <button class="btn-action-sm danger" onclick="fetchAllData()">
+                ↺ Reset View
+            </button>
+        </div>
+
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="map-view">🗺️ Command Center</button>
+            <button class="tab-btn" data-tab="fleet-view">🚑 Fleet Units</button>
+            <button class="tab-btn" data-tab="hospitals-view">🏥 Hospitals</button>
+            <button class="tab-btn" data-tab="dispatches-view">📋 Dispatch Log</button>
+            <button class="tab-btn" data-tab="reports-view">📊 Analytics &amp; Reports</button>
+        </nav>
+    </div>
+
+    <!-- ====================================================================
+         MAIN 3-COLUMN OPERATIONS CONSOLE
+         ==================================================================== -->
+    <main class="main-viewport">
+
+        <!-- ----------------------------------------------------------------
+             LEFT COLUMN: INCIDENT QUEUE (PRIORITY SORTED)
+             ---------------------------------------------------------------- -->
+        <aside class="incident-queue-panel">
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <span>Incident Queue</span>
+                    <span class="counter-badge" id="incident-counter">0 shown</span>
+                </div>
+                <span style="font-size: 10px; color: var(--text-muted);">CRITICAL &gt; HIGH &gt; FIFO</span>
+            </div>
+
+            <div class="queue-filters">
+                <select class="select-control" id="filter-severity">
+                    <option value="ALL">All Urgencies</option>
+                    <option value="CRITICAL">🔴 Critical Only</option>
+                    <option value="HIGH">🟠 High Severity</option>
+                    <option value="MEDIUM">🟡 Medium Severity</option>
+                    <option value="LOW">🔵 Low Severity</option>
+                </select>
+
+                <select class="select-control" id="filter-status">
+                    <option value="ALL">All Statuses</option>
+                    <option value="PENDING" selected>Pending Triage</option>
+                    <option value="ASSIGNED">Dispatched</option>
+                    <option value="RESOLVED">Resolved</option>
+                </select>
+            </div>
+
+            <div class="incident-list" id="incident-list">
+                <!-- Dynamically populated from JS -->
+            </div>
+        </aside>
+
+        <!-- ----------------------------------------------------------------
+             CENTER COLUMN: LEAFLET MAP & ROAD NETWORK
+             ---------------------------------------------------------------- -->
+        <section class="map-panel">
+            <div id="map"></div>
+
+            <!-- Floating Layer Controls -->
+            <div class="map-layer-controls">
+                <div class="layer-title">Map Layers</div>
+                <div class="layer-item">
+                    <span>Road Grid</span>
+                    <div class="toggle-switch on" id="toggle-network">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+                <div class="layer-item">
+                    <span>Ambulances</span>
+                    <div class="toggle-switch on" id="toggle-ambulances">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+                <div class="layer-item">
+                    <span>Hospitals</span>
+                    <div class="toggle-switch on" id="toggle-hospitals">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+                <div class="layer-item">
+                    <span>Incidents</span>
+                    <div class="toggle-switch on" id="toggle-incidents">
+                        <div class="toggle-slider"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map Legend -->
+            <div class="map-legend">
+                <div class="legend-item"><div class="legend-dot amb"></div> Ambulance</div>
+                <div class="legend-item"><div class="legend-dot hosp"></div> Hospital</div>
+                <div class="legend-item"><div class="legend-dot emg"></div> Emergency</div>
+                <div class="legend-item"><div class="legend-line route"></div> Shortest Path (Dijkstra)</div>
+            </div>
+        </section>
+
+        <!-- ----------------------------------------------------------------
+             RIGHT COLUMN: TRIAGE & DISPATCH CONTROL PANEL
+             ---------------------------------------------------------------- -->
+        <aside class="dispatch-panel">
+
+            <!-- Triage Summary Card -->
+            <div class="triage-section">
+                <div class="section-label">Incident Triage</div>
+                <div class="triage-hero">
+                    <div class="triage-hero-header">
+                        <span class="triage-hero-title" id="triage-title">Select an Incident</span>
+                        <span id="triage-severity">--</span>
+                    </div>
+                    <div class="triage-details-grid">
+                        <div class="detail-field">
+                            <div class="field-label">Reference ID</div>
+                            <div class="field-val" id="triage-ref">--</div>
+                        </div>
+                        <div class="detail-field">
+                            <div class="field-label">Intersection Node</div>
+                            <div class="field-val" id="triage-location">--</div>
+                        </div>
+                        <div class="detail-field">
+                            <div class="field-label">Logged At</div>
+                            <div class="field-val" id="triage-time">--</div>
+                        </div>
+                        <div class="detail-field">
+                            <div class="field-label">Required Facility</div>
+                            <div class="field-val" id="triage-required-facility">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Allocated Resources & Route Telemetry -->
+                <div id="dispatch-details-section" style="display: none;">
+                    <div class="section-label">Allocated Dispatch Operation</div>
+
+                    <div class="resource-card">
+                        <div class="resource-header">
+                            <div class="resource-title">
+                                <span>🚑</span> Assigned Unit: <strong id="assigned-amb-code" style="color: #38bdf8;">--</strong>
+                            </div>
+                            <span class="counter-badge" id="assigned-amb-distance">-- km</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">
+                            Vehicle dispatched via Dijkstra shortest path from depot.
+                        </div>
+                    </div>
+
+                    <div class="resource-card">
+                        <div class="resource-header">
+                            <div class="resource-title">
+                                <span>🏥</span> Destination Hospital
+                            </div>
+                        </div>
+                        <div style="font-size: 12px; font-weight: 700; color: #c084fc;" id="assigned-hosp-name">--</div>
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;" id="assigned-hosp-loc">
+                            Location: --
+                        </div>
+                    </div>
+
+                    <!-- Calculated Route Breadcrumb -->
+                    <div class="section-label" style="margin-top: 10px;">Dijkstra Shortest Route Path</div>
+                    <div class="route-breadcrumb" id="route-path-display">--</div>
+
+                    <div class="telemetry-metrics">
+                        <div class="metric-box">
+                            <div class="metric-number" id="metric-total-dist">--</div>
+                            <div class="metric-unit">Total Distance (km)</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-number" id="metric-eta">--</div>
+                            <div class="metric-unit">Simulated ETA (min)</div>
+                        </div>
+                    </div>
+
+                    <!-- Mission Lifecycle Stepper -->
+                    <div class="section-label" style="margin-top: 14px;">Dispatch Lifecycle Progression</div>
+                    <div class="simulation-stepper">
+                        <div class="step-item" id="step-created">
+                            <div class="step-circle">1</div>
+                            <div class="step-content">
+                                <div class="step-title">Emergency Registered</div>
+                            </div>
+                        </div>
+                        <div class="step-item" id="step-assigned">
+                            <div class="step-circle">2</div>
+                            <div class="step-content">
+                                <div class="step-title">Ambulance &amp; Hospital Allocated</div>
+                            </div>
+                        </div>
+                        <div class="step-item" id="step-enroute">
+                            <div class="step-circle">3</div>
+                            <div class="step-content">
+                                <div class="step-title">En Route to Emergency</div>
+                            </div>
+                        </div>
+                        <div class="step-item" id="step-onscene">
+                            <div class="step-circle">4</div>
+                            <div class="step-content">
+                                <div class="step-title">On Scene &amp; Patient Stabilized</div>
+                            </div>
+                        </div>
+                        <div class="step-item" id="step-transport">
+                            <div class="step-circle">5</div>
+                            <div class="step-content">
+                                <div class="step-title">En Route to Hospital</div>
+                            </div>
+                        </div>
+                        <div class="step-item" id="step-completed">
+                            <div class="step-circle">6</div>
+                            <div class="step-content">
+                                <div class="step-title">Completed &amp; Bed Decremented</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Controls -->
+                    <div class="simulation-controls-box">
+                        <button class="btn-sim-start" onclick="startRouteSimulation()">
+                            ▶️ Animate Ambulance Route Simulation
+                        </button>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <button class="btn-sim-step" onclick="stepNextStatus()">
+                                ⏭️ Step Next State
+                            </button>
+                            <button class="btn-sim-complete" onclick="completeActiveDispatch()">
+                                ✔️ Complete Mission
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+    </main>
+
+    <!-- ====================================================================
+         OVERLAY VIEW: FLEET UNITS TABLE
+         ==================================================================== -->
+    <div class="overlay-view" id="view-fleet-view">
+        <div class="view-header">
+            <div>
+                <h1 class="view-title"><span>🚑</span> Ambulance Fleet Inventory</h1>
+                <p class="view-subtitle">Live status, current node locations, and onboard medical equipment.</p>
+            </div>
+            <button class="btn-secondary" onclick="switchTab('map-view')">✖ Close Table</button>
+        </div>
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Unit ID</th>
+                        <th>Vehicle Code</th>
+                        <th>Class / Type</th>
+                        <th>Current Location</th>
+                        <th>Availability</th>
+                        <th>Onboard Equipment</th>
+                        <th>Current Assignment</th>
+                    </tr>
+                </thead>
+                <tbody id="ambulance-table-body">
+                    <!-- Populated via JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         OVERLAY VIEW: HOSPITALS DIRECTORY TABLE
+         ==================================================================== -->
+    <div class="overlay-view" id="view-hospitals-view">
+        <div class="view-header">
+            <div>
+                <h1 class="view-title"><span>🏥</span> Hospital Network &amp; Bed Capacity</h1>
+                <p class="view-subtitle">Monitors real-time bed availability and specialized medical capabilities.</p>
+            </div>
+            <button class="btn-secondary" onclick="switchTab('map-view')">✖ Close Table</button>
+        </div>
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Hospital ID</th>
+                        <th>Hospital Name</th>
+                        <th>Intersection Node</th>
+                        <th>Available Beds / Total</th>
+                        <th>Capacity Status</th>
+                        <th>Specialized Facilities</th>
+                    </tr>
+                </thead>
+                <tbody id="hospital-table-body">
+                    <!-- Populated via JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         OVERLAY VIEW: DISPATCH LOG TABLE
+         ==================================================================== -->
+    <div class="overlay-view" id="view-dispatches-view">
+        <div class="view-header">
+            <div>
+                <h1 class="view-title"><span>📋</span> Mission Dispatch Log &amp; Audit Trail</h1>
+                <p class="view-subtitle">Full historical ledger of algorithmic allocations and response durations.</p>
+            </div>
+            <button class="btn-secondary" onclick="switchTab('map-view')">✖ Close Table</button>
+        </div>
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Mission ID</th>
+                        <th>Emergency Ref</th>
+                        <th>Assigned Ambulance</th>
+                        <th>Target Hospital</th>
+                        <th>Route Distance</th>
+                        <th>Estimated ETA</th>
+                        <th>Mission Status</th>
+                        <th>Assigned Time</th>
+                    </tr>
+                </thead>
+                <tbody id="dispatch-table-body">
+                    <!-- Populated via JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         OVERLAY VIEW: ANALYTICS & REPORTS
+         ==================================================================== -->
+    <div class="overlay-view" id="view-reports-view">
+        <div class="view-header">
+            <div>
+                <h1 class="view-title"><span>📊</span> Operational Analytics &amp; Reports</h1>
+                <p class="view-subtitle">System metrics, response time KPIs, and incident distribution.</p>
+            </div>
+            <button class="btn-secondary" onclick="switchTab('map-view')">✖ Close Table</button>
+        </div>
+
+        <div class="reports-grid">
+            <div class="report-stat-card">
+                <span class="section-label">Total Emergencies</span>
+                <div class="report-stat-num" id="rep-total-emg">0</div>
+            </div>
+            <div class="report-stat-card">
+                <span class="section-label">Active Emergencies</span>
+                <div class="report-stat-num" id="rep-active-emg" style="color: #ef4444;">0</div>
+            </div>
+            <div class="report-stat-card">
+                <span class="section-label">Completed Dispatches</span>
+                <div class="report-stat-num" id="rep-completed-disp" style="color: #10b981;">0</div>
+            </div>
+            <div class="report-stat-card">
+                <span class="section-label">Average Response Time</span>
+                <div class="report-stat-num" id="rep-avg-response" style="color: #38bdf8;">0.0 min</div>
+            </div>
+        </div>
+
+        <div class="charts-row">
+            <div class="chart-card">
+                <div class="chart-title">Emergencies by Urgency / Severity</div>
+                <div id="severity-distribution-bars">
+                    <!-- Bars populated via JS -->
+                </div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-title">Emergencies by Clinical Type</div>
+                <div id="type-distribution-bars">
+                    <!-- Bars populated via JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         MODAL: REGISTER NEW EMERGENCY INCIDENT
+         ==================================================================== -->
+    <div class="modal-backdrop" id="emergency-modal">
+        <div class="modal-window">
+            <div class="modal-header">
+                <h2 class="modal-title">🚨 Log New Emergency Incident</h2>
+                <button class="modal-close" onclick="closeCreateEmergencyModal()">✕</button>
+            </div>
+            <form id="emergency-form">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label class="form-label">Location (Intersection Node)</label>
+                        <select class="form-select" id="emg-location-select" required>
+                            <!-- Populated dynamically with 18 intersections -->
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Emergency Incident Type</label>
+                        <select class="form-select" id="emg-type-select" required>
+                            <option value="Cardiac Emergency">Cardiac Emergency (Requires ALS + Defibrillator)</option>
+                            <option value="Road Accident">Road Accident (Requires Trauma Care)</option>
+                            <option value="Fire Injury">Fire Injury (Requires Burn Care + Oxygen)</option>
+                            <option value="General Medical Emergency">General Medical Emergency</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Urgency / Severity Level</label>
+                        <input type="hidden" id="emg-severity-input" value="CRITICAL">
+                        <div class="severity-options-row">
+                            <button type="button" class="severity-btn active critical" data-sev="CRITICAL" onclick="selectSeverityForm('CRITICAL')">
+                                Critical
+                            </button>
+                            <button type="button" class="severity-btn high" data-sev="HIGH" onclick="selectSeverityForm('HIGH')">
+                                High
+                            </button>
+                            <button type="button" class="severity-btn medium" data-sev="MEDIUM" onclick="selectSeverityForm('MEDIUM')">
+                                Medium
+                            </button>
+                            <button type="button" class="severity-btn low" data-sev="LOW" onclick="selectSeverityForm('LOW')">
+                                Low
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Incident Description &amp; Caller Notes</label>
+                        <textarea class="form-textarea" id="emg-desc-input" rows="3" placeholder="Describe symptoms, vehicle count, patient age, hazard level..."></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeCreateEmergencyModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">⚡ Queue into Priority Triage</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
