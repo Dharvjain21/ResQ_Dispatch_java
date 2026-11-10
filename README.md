@@ -243,13 +243,13 @@ To inspect database tables and execute SQL queries directly in your browser:
 
 ## 8. Deploying on Render
 
-The repository includes [`render.yaml`](render.yaml), which configures a Render web service for the Spring Boot backend.
+The repository includes [`render.yaml`](render.yaml) and [`backend/Dockerfile`](backend/Dockerfile), which configure a Render Docker web service for the Spring Boot backend.
 
 1. Push the repository to GitHub.
 2. In Render, select **New +** → **Blueprint**.
 3. Connect `Dharvjain21/ResQ_Dispatch_java`.
 4. Select the `main` branch and approve the Blueprint.
-5. Render builds from `backend` with Maven and starts the packaged JAR.
+5. Render builds the Java 17 Docker image from `backend` and starts the packaged JAR.
 6. Open the generated `https://<service-name>.onrender.com/` URL.
 
 The application reads Render's `PORT` environment variable and falls back to `8080` locally. The default Render deployment uses the embedded H2 database, so seeded data is recreated after a service restart or redeploy. Use the MySQL profile with an external managed MySQL database if persistent production data is required.

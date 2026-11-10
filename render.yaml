@@ -1,9 +1,9 @@
 services:
   - type: web
     name: resq-dispatch
-    runtime: java
+    runtime: docker
     rootDir: backend
     plan: free
-    buildCommand: mvn clean package -DskipTests
-    startCommand: java -jar target/ambulance-dispatch-1.0.0.jar
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /
