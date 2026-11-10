@@ -1,5 +1,6 @@
 # Maven build output
 backend/target/
+cli-demo/bin/
 
 # Local tool downloads
 .tools/
